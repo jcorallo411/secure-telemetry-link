@@ -271,5 +271,6 @@ In priority order:
 3. Move to an AEAD (ChaCha20-Poly1305 or AES-GCM) with the frame counter as
    the nonce, adding confidentiality without hand-composing two primitives.
 4. Persist the receiver's replay window.
-5. Run the fuzzer continuously in CI with an accumulating corpus.
+5. Grow the CI fuzzing (currently a 60-second smoke test on every push) into
+   longer scheduled campaigns with a corpus that accumulates between runs.
 6. Add key diversification and a rekeying path.

@@ -127,5 +127,7 @@ is that the same setup finds a planted bug in 90 seconds.
 - **Timing side channels.** Constant-time comparison is used for the MAC, but
   verifying constant-time behavior needs statistical timing analysis, not
   fuzzing.
-- **Longer campaigns.** Two minutes is a smoke test. A real program would run
-  this continuously in CI with an accumulating corpus.
+- **Longer campaigns.** Two minutes is a smoke test. CI runs a 60-second
+  fuzz smoke test on every push and pull request (`.github/workflows/ci.yml`),
+  starting from the seed corpus each time. A real program would also run long
+  campaigns with a corpus that accumulates between runs.

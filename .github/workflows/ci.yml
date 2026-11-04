@@ -1,0 +1,70 @@
+name: CI
+
+# Runs on every push and pull request. A red badge on a security project is a
+# bug report, so every claim in the README's Verification table is re-proved
+# here: warnings-as-errors build, unit tests, sanitizers, cross-implementation
+# vectors, Python tests, and a short fuzzing smoke test.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, tests, sanitizers (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported (README: Python 3.9 or newer) and a current release.
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+
+      # check = C++ unit tests + the same tests under ASan/UBSan
+      #         + cross-implementation vectors + Python tests
+      - name: make check
+        run: make check
+
+  fuzz:
+    name: Fuzz smoke test (60 s)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the libFuzzer runtime
+        run: sudo apt-get update -q && sudo apt-get install -y -q libclang-rt-18-dev
+
+      - name: Seed the corpus
+        run: python3 tools/seed_corpus.py
+
+      # libFuzzer exits non-zero on any crash, leak, or sanitizer report,
+      # which fails the job.
+      - name: Fuzz the receive path
+        run: make fuzz-run FUZZ_CXX=clang++-18 FUZZ_SECONDS=60
+
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: fuzz/findings/
+          if-no-files-found: ignore
