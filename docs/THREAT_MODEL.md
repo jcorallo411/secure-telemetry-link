@@ -168,6 +168,13 @@ pinned by `test_counter_store_persistence` and
 `test_link_rejects_zero_counter_restart`, the latter of which documents the
 original broken behavior so it cannot quietly return.
 
+A later review found the fix could be undone by a crash mid-write: the C++
+side truncated the state file before writing it, and both sides treated a
+short file as a first run. The write is now atomic (temp file, fsync, rename,
+directory fsync) and a corrupt state file stops startup instead of restarting
+at zero. Pinned by `test_counter_store_fails_closed_on_corrupt_state` and
+`test_counter_store_write_is_atomic`.
+
 ### 4.5 Key exhaustion
 
 The frame counter is 32 bits and does not wrap. At 50 Hz, exhaustion takes
@@ -233,7 +240,9 @@ marketing.
    Python's `hashlib`/`hmac`, which establishes functional correctness and
    nothing about side-channel resistance.
 10. **No protection of logs or stored state.** The counter state file and the
-    telemetry logs are unsigned and world-readable.
+    telemetry logs are unsigned and world-readable. The counter file is
+    written atomically and a corrupt one is refused, but nothing stops an
+    attacker with write access to it from rolling it back.
 
 ---
 
@@ -241,8 +250,8 @@ marketing.
 
 | Activity | Result |
 |---|---|
-| Unit tests (C++) | 536 checks, 0 failures |
-| Unit tests (Python) | 38 tests, 0 failures |
+| Unit tests (C++) | 563 checks, 0 failures |
+| Unit tests (Python) | 42 tests, 0 failures |
 | Cross-implementation vectors | 8 frames, byte-identical between C++ and Python |
 | Exhaustive bit-flip test | Every single-bit modification of a frame rejected |
 | ASan + UBSan on the full suite | Clean |

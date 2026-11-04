@@ -151,14 +151,32 @@ attack sending 9 malformed frames produced only 8 rejections. Timeout and error
 are now negative, and a zero-length datagram is parsed and counted like
 anything else.
 
+**A crash mid-write could bring the lockout back.** Found in a later review
+of the fix above. The C++ store wrote the high-water mark in place with
+`fopen("wb")`, which truncates the file before writing. A crash or power loss
+between the truncate and the write left an empty file, and an empty or short
+file was treated as a first run, so the counter restarted at zero: the exact
+lockout counter persistence exists to prevent. The Python side already wrote
+atomically but had the same "corrupt means zero" fallback.
+
+Two changes fixed it. The C++ write now goes to a temp file, is fsynced, and
+is renamed over the real one (rename is atomic within a directory), followed
+by an fsync of the directory; a crash leaves the old mark or the new one,
+never a torn file. And both sides now fail closed: only a *missing* file means
+first run, while a file that exists but is not exactly four bytes stops
+startup with an error. A silent restart at zero is replaced by a visible
+failure an operator can act on. Pinned by
+`test_counter_store_fails_closed_on_corrupt_state`,
+`test_counter_store_write_is_atomic`, and the matching Python tests.
+
 ---
 
 ## Verification
 
 | | |
 |---|---|
-| C++ unit tests | 536 checks, 0 failures |
-| Python unit tests | 38 tests, 0 failures |
+| C++ unit tests | 563 checks, 0 failures |
+| Python unit tests | 42 tests, 0 failures |
 | Cross-implementation vectors | 8 frames, byte-identical C++ vs Python |
 | Bit-flip coverage | Every single-bit change to a frame is rejected |
 | ASan + UBSan | Clean on the full suite |
@@ -211,7 +229,7 @@ flight/          C++17 flight computer
   include/stl/   sha256, hmac, protocol, replay, secure_link,
                  counter_store, sensors, keys, udp
   src/           implementations + main
-  tests/         536-check unit suite
+  tests/         563-check unit suite
 ground/          Python 3 ground station
   stl/           protocol, replay, secure_link, counter_store, keys
   station.py     receiver, live display, command uplink

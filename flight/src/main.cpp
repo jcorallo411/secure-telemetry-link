@@ -107,7 +107,13 @@ int main(int argc, char** argv) {
     stl::CounterStore counters;
     if (!counters.open(cfg.counter_path, &err)) {
         std::fprintf(stderr, "[FC] counter store failed: %s\n", err);
-        std::fprintf(stderr, "[FC] (create the directory, e.g. mkdir -p state)\n");
+        if (std::strstr(err, "corrupt") != nullptr) {
+            std::fprintf(stderr, "[FC] (inspect %s; if the link is being rekeyed, "
+                                 "delete it and rekey both ends)\n",
+                         cfg.counter_path);
+        } else {
+            std::fprintf(stderr, "[FC] (create the directory, e.g. mkdir -p state)\n");
+        }
         return 1;
     }
 

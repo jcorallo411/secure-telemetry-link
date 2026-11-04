@@ -35,7 +35,7 @@ from stl import (  # noqa: E402
     default_key_path,
 )
 from stl import protocol as p  # noqa: E402
-from stl.counter_store import CounterStore  # noqa: E402
+from stl.counter_store import CounterStateCorrupt, CounterStore  # noqa: E402
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -58,7 +58,10 @@ class GroundStation:
         # The transmit counter has to survive a restart of this process, or the
         # flight computer's replay window will reject every command the second
         # time the station is run.
-        counter_store = CounterStore(Path(args.state_dir) / "ground_tx.ctr")
+        try:
+            counter_store = CounterStore(Path(args.state_dir) / "ground_tx.ctr")
+        except CounterStateCorrupt as exc:
+            raise SystemExit(f"[GS] {exc}") from None
 
         # Ground signs commands with K_TC and verifies telemetry with K_TM —
         # the mirror image of the flight computer's construction.

@@ -12,7 +12,11 @@ sys.path.insert(0, str(ROOT / "ground"))
 
 from stl import PacketType, ParseResult, SecureLink  # noqa: E402
 from stl import protocol as p  # noqa: E402
-from stl.counter_store import BLOCK_SIZE, CounterStore  # noqa: E402
+from stl.counter_store import (  # noqa: E402
+    BLOCK_SIZE,
+    CounterStateCorrupt,
+    CounterStore,
+)
 from stl.replay import ReplayVerdict, ReplayWindow, WINDOW_SIZE  # noqa: E402
 
 K_TM = bytes(range(0x11, 0x11 + 32))
@@ -258,11 +262,24 @@ class TestCounterStore:
         assert values == list(range(BLOCK_SIZE + 5))
         assert len(set(values)) == len(values)
 
-    def test_corrupt_state_file_does_not_crash(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("blob", [b"", b"\x01\x02", b"\x00\x00\x04\x00\x00"])
+    def test_corrupt_state_file_fails_closed(self, tmp_path: Path, blob: bytes) -> None:
+        """A torn or garbled mark must stop startup, never restart at zero."""
         path = tmp_path / "tx.ctr"
-        path.write_bytes(b"\x01\x02")  # truncated
-        store = CounterStore(path)
+        path.write_bytes(blob)
+        with pytest.raises(CounterStateCorrupt):
+            CounterStore(path)
+        assert path.read_bytes() == blob  # the evidence is left untouched
+
+    def test_missing_state_file_is_first_run(self, tmp_path: Path) -> None:
+        store = CounterStore(tmp_path / "tx.ctr")
         assert store.next() == 0
+
+    def test_write_leaves_no_temp_file(self, tmp_path: Path) -> None:
+        store = CounterStore(tmp_path / "tx.ctr")
+        for _ in range(BLOCK_SIZE + 1):
+            store.next()
+        assert sorted(f.name for f in tmp_path.iterdir()) == ["tx.ctr"]
 
     def test_persisted_before_use(self, tmp_path: Path) -> None:
         """The reservation must be on disk before any counter is handed out."""
