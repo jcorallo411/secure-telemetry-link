@@ -23,6 +23,15 @@ class CounterExhausted(Exception):
     """Raised when the 32-bit counter space is spent and the link needs rekeying."""
 
 
+class CounterStateCorrupt(Exception):
+    """Raised when the state file exists but does not hold a valid mark.
+
+    Starting at zero instead would reuse counters the receiver has already
+    accepted, locking this sender out of the replay window. Refusing to start
+    makes the problem visible to an operator instead of silent.
+    """
+
+
 class CounterStore:
     __slots__ = ("_path", "_next", "_block_end")
 
@@ -38,7 +47,12 @@ class CounterStore:
         except FileNotFoundError:
             return 0  # first run
         if len(blob) != 4:
-            return 0  # corrupt or truncated; start over rather than guess
+            # Fail closed: only a missing file means "first run".
+            raise CounterStateCorrupt(
+                f"counter state file {self._path} is corrupt "
+                f"({len(blob)} bytes, expected 4); refusing to start rather "
+                "than reuse counters"
+            )
         return struct.unpack(">I", blob)[0]
 
     def _write_mark(self, value: int) -> None:

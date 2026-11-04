@@ -14,7 +14,8 @@
 // counters in secure boot and HSM designs:
 //
 //   1. At startup, read the persisted high-water mark H.
-//   2. Immediately write H + BLOCK back to the file and flush it.
+//   2. Immediately write H + BLOCK back to the file, atomically (temp file,
+//      fsync, rename) so a crash can never leave it truncated.
 //   3. Hand out counters H, H+1, ... H+BLOCK-1 from memory.
 //   4. When the block is exhausted, reserve the next one.
 //
@@ -39,7 +40,10 @@ class CounterStore {
 public:
     CounterStore() noexcept : path_(nullptr), next_(0U), block_end_(0U), ok_(false) {}
 
-    // Opens (creating if absent) the state file and reserves the first block.
+    // Opens the state file and reserves the first block. A missing file means
+    // a first run and starts at zero. A file that exists but is unreadable or
+    // not exactly four bytes is refused (returns false): starting at zero
+    // would reuse counters the receiver has already accepted.
     bool open(const char* path, const char** err) noexcept;
 
     // Returns the next counter to use, reserving a new block if needed.
