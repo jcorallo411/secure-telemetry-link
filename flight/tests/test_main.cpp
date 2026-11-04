@@ -554,6 +554,89 @@ void test_counter_store_persistence() {
     std::remove(path);
 }
 
+namespace {
+
+bool write_raw(const char* path, const std::uint8_t* data, std::size_t len) {
+    std::FILE* f = std::fopen(path, "wb");
+    if (f == nullptr) {
+        return false;
+    }
+    const bool ok = (std::fwrite(data, 1U, len, f) == len);
+    return (std::fclose(f) == 0) && ok;
+}
+
+std::size_t file_size(const char* path) {
+    std::FILE* f = std::fopen(path, "rb");
+    if (f == nullptr) {
+        return static_cast<std::size_t>(-1);
+    }
+    std::uint8_t buf[16];
+    const std::size_t n = std::fread(buf, 1U, sizeof(buf), f);
+    std::fclose(f);
+    return n;
+}
+
+}  // namespace
+
+void test_counter_store_fails_closed_on_corrupt_state() {
+    TEST("a torn or garbled counter file stops startup instead of restarting at zero");
+    // Regression for a crash mid-write. The original in-place write truncated
+    // the file before writing, so a crash could leave it empty, and an empty
+    // file was treated as a first run: counters restarted at zero, which is
+    // the replay-window lockout counter persistence was built to prevent.
+    const char* path = "build/.test_counter_corrupt.ctr";
+    const std::uint8_t five[5] = {0U, 0U, 4U, 0U, 0U};
+    const std::size_t lengths[3] = {0U, 2U, 5U};
+    for (std::size_t i = 0; i < 3U; ++i) {
+        std::remove(path);
+        CHECK(write_raw(path, five, lengths[i]));
+        stl::CounterStore cs;
+        const char* err = nullptr;
+        CHECK(!cs.open(path, &err));
+        CHECK(!cs.ok());
+        std::uint32_t c = 0U;
+        CHECK(!cs.next(c));
+        CHECK(err != nullptr && std::strstr(err, "corrupt") != nullptr);
+        CHECK(file_size(path) == lengths[i]);  // evidence left untouched
+    }
+    std::remove(path);
+}
+
+void test_counter_store_write_is_atomic() {
+    TEST("counter reservations go through a temp file and leave a 4-byte mark");
+    const char* path = "build/.test_counter_atomic.ctr";
+    const char* tmp = "build/.test_counter_atomic.ctr.tmp";
+    std::remove(path);
+    std::remove(tmp);
+    {
+        stl::CounterStore cs;
+        const char* err = nullptr;
+        CHECK(cs.open(path, &err));
+        std::uint32_t c = 0U;
+        bool all_issued = true;
+        for (std::uint32_t i = 0U; i <= stl::COUNTER_BLOCK_SIZE; ++i) {
+            all_issued = cs.next(c) && all_issued;  // crosses one block boundary
+        }
+        CHECK(all_issued);
+        CHECK(c == stl::COUNTER_BLOCK_SIZE);
+    }
+    CHECK(file_size(path) == 4U);
+    CHECK(file_size(tmp) == static_cast<std::size_t>(-1));  // no temp left
+    {
+        // A stale temp file from an earlier crash must not affect startup.
+        const std::uint8_t junk[2] = {0xFFU, 0xFFU};
+        CHECK(write_raw(tmp, junk, 2U));
+        stl::CounterStore cs;
+        const char* err = nullptr;
+        CHECK(cs.open(path, &err));
+        std::uint32_t c = 0U;
+        CHECK(cs.next(c));
+        CHECK(c == 2U * stl::COUNTER_BLOCK_SIZE);
+    }
+    std::remove(path);
+    std::remove(tmp);
+}
+
 void test_link_rejects_zero_counter_restart() {
     TEST("a restarted sender without a counter store is correctly rejected");
     // Documents the failure that motivated counter persistence: two senders
@@ -601,6 +684,8 @@ int main() {
     test_payload_decoders_reject_wrong_size();
     test_seal_bounds();
     test_counter_store_persistence();
+    test_counter_store_fails_closed_on_corrupt_state();
+    test_counter_store_write_is_atomic();
     test_link_rejects_zero_counter_restart();
 
     std::printf("\n%d checks, %d failures\n", g_checks, g_failures);

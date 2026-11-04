@@ -286,10 +286,17 @@ second run to be rejected as `REPLAY_DUPLICATE`.
 Both implementations therefore reserve counters in blocks:
 
 1. At startup, read the persisted high-water mark `H`.
-2. Write `H + BLOCK` back to durable storage and flush it, **before** using any
-   counter from the block.
+2. Write `H + BLOCK` back to durable storage, **before** using any counter
+   from the block. The write must be atomic: write a temporary file, fsync
+   it, rename it over the state file, and fsync the directory, so a crash
+   never leaves a truncated mark.
 3. Hand out `H … H+BLOCK-1` from memory.
 4. On exhaustion, reserve the next block.
+
+A state file that exists but does not hold a valid mark MUST cause the
+sender to refuse to start. Only an absent file means first run; treating a
+corrupt file as zero would reuse counters, which is the failure this section
+exists to prevent.
 
 Persisting before use is the essential ordering. If the process dies mid-block,
 storage already claims the whole block as spent, so the next run starts above
