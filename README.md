@@ -1,5 +1,7 @@
 # Secure Telemetry Link (STL-1)
 
+[![CI](https://github.com/jcorallo411/secure-telemetry-link/actions/workflows/ci.yml/badge.svg)](https://github.com/jcorallo411/secure-telemetry-link/actions/workflows/ci.yml)
+
 An authenticated spacecraft telemetry and command link: a C++ flight computer,
 a Python ground station, and a CCSDS-derived packet protocol with message
 authentication and replay protection between them.
@@ -184,6 +186,7 @@ failure an operator can act on. Pinned by
 | Fuzzer validated | Finds a planted bounds bug in under 90 seconds |
 | Compiler | `-Wall -Wextra -Wpedantic -Wconversion -Werror`, clean |
 | Attacks demonstrated | 7 classes, all rejected with the expected reason |
+| Continuous integration | `make check` on Python 3.9 and 3.12, plus a 60-second fuzz run, on every push and pull request |
 
 SHA-256 is checked against the FIPS 180-4 vectors including the one-million-byte
 case, and HMAC against Python's `hmac` module.
